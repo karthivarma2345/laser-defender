@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Laser Defender Game</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: #0b0c10;
+      color: white;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      overflow: hidden;
+    }
+    h1 {
+      color: #66fcf1;
+      margin-bottom: 10px;
+      text-align: center;
+    }
+    canvas {
+      border: 2px solid #45a29e;
+      background-color: #1f2833;
+      max-width: 100%;
+      height: auto;
+    }
+    #score {
+      margin-top: 10px;
+      font-size: 18px;
+      color: yellow;
+    }
+    #restartBtn {
+      margin-top: 10px;
+      padding: 8px 16px;
+      font-size: 16px;
+      background-color: #66fcf1;
+      color: #0b0c10;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      display: none;
+    }
+    #leaderboard {
+      margin-top: 10px;
+      color: white;
+      font-size: 14px;
+    }
+    #leaderboard h3 {
+      color: #66fcf1;
+      margin-bottom: 5px;
+    }
+    #leaderboard ol {
+      padding-left: 20px;
+    }
+    .mobile-controls {
+      display: none;
+      margin-top: 10px;
+      gap: 10px;
+    }
+    .mobile-controls button {
+      padding: 10px 20px;
+      font-size: 16px;
+      background-color: #45a29e;
+      color: white;
+      border: none;
+      border-radius: 8px;
+    }
+    @media (max-width: 768px) {
+      body {
+        padding: 10px;
+        height: auto;
+      }
+      canvas {
+        width: 100%;
+        height: auto;
+      }
+      .mobile-controls {
+        display: flex;
+        justify-content: center;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>Laser Defender</h1>
+  <canvas id="gameCanvas" width="500" height="600"></canvas>
+  <div id="score">Score: 0 | Lives: 10</div>
+  <button id="restartBtn">Restart Game</button>
+  <div class="mobile-controls">
+    <button onclick="moveLeft()">◀️</button>
+    <button onclick="fireLaser()">🔼</button>
+    <button onclick="moveRight()">▶️</button>
+  </div>
+  <div id="leaderboard">
+    <h3>Leaderboard</h3>
+    <ol id="scoresList"></ol>
+  </div>
+  <audio id="laserSound" src="https://freesound.org/data/previews/64/64763_634166-lq.mp3"></audio>
+  <audio id="explosionSound" src="https://freesound.org/data/previews/235/235968_3986837-lq.mp3"></audio>
+  <audio id="powerUpSound" src="https://freesound.org/data/previews/341/341695_3248244-lq.mp3"></audio>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const restartBtn = document.getElementById("restartBtn");
+    const laserSound = document.getElementById("laserSound");
+    const explosionSound = document.getElementById("explosionSound");
+    const powerUpSound = document.getElementById("powerUpSound");
+    const scoresList = document.getElementById("scoresList");
+
+    const player = {
+      x: canvas.width / 2 - 25,
+      y: canvas.height - 60,
+      width: 50,
+      height: 20,
+      color: "#66fcf1",
+      speed: 5,
+      lives: 10
+    };
+
+    let lasers = [];
+    let enemies = [];
+    let powerUps = [];
+    let boss = null;
+    let score = 0;
+    let gameOver = false;
+
+    function drawPlayer() {
+      ctx.fillStyle = player.color;
+      ctx.fillRect(player.x, player.y, player.width, player.height);
+    }
+
+    function drawLasers() {
+      ctx.fillStyle = "red";
+      lasers.forEach(laser => ctx.fillRect(laser.x, laser.y, 4, 20));
+    }
+
+    function drawEnemies() {
+      ctx.fillStyle = "lime";
+      enemies.forEach(enemy => ctx.fillRect(enemy.x, enemy.y, 40, 20));
+    }
+
+    function drawPowerUps() {
+      ctx.fillStyle = "gold";
+      powerUps.forEach(pu => {
+        ctx.beginPath();
+        ctx.arc(pu.x, pu.y, 10, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+
+    function drawBoss() {
+      if (boss) {
+        ctx.fillStyle = "purple";
+        ctx.fillRect(boss.x, boss.y, boss.width, boss.height);
+      }
+    }
+
+    function updateLasers() {
+      lasers.forEach((laser, index) => {
+        laser.y -= 8;
+        if (laser.y < 0) lasers.splice(index, 1);
+      });
+    }
+
+    function updateEnemies() {
+      enemies.forEach((enemy, index) => {
+        enemy.y += 2;
+        if (enemy.y > canvas.height) {
+          enemies.splice(index, 1);
+          player.lives--;
+          if (player.lives <= 0) endGame();
+        }
+      });
+    }
+
+    function updatePowerUps() {
+      powerUps.forEach((pu, index) => {
+        pu.y += 3;
+        if (pu.y > canvas.height) powerUps.splice(index, 1);
+        if (
+          pu.x > player.x && pu.x < player.x + player.width &&
+          pu.y > player.y && pu.y < player.y + player.height
+        ) {
+          powerUps.splice(index, 1);
+          score += 20;
+          player.lives++;
+          powerUpSound.play();
+        }
+      });
+    }
+
+    function updateBoss() {
+      if (boss) {
+        boss.y += 1;
+        if (boss.y > canvas.height) boss = null;
+      }
+    }
+
+    function detectCollisions() {
+      lasers.forEach((laser, lIndex) => {
+        enemies.forEach((enemy, eIndex) => {
+          if (
+            laser.x < enemy.x + 40 &&
+            laser.x + 4 > enemy.x &&
+            laser.y < enemy.y + 20 &&
+            laser.y + 20 > enemy.y
+          ) {
+            lasers.splice(lIndex, 1);
+            enemies.splice(eIndex, 1);
+            score += 10;
+            explosionSound.play();
+          }
+        });
+
+        if (boss &&
+          laser.x < boss.x + boss.width &&
+          laser.x + 4 > boss.x &&
+          laser.y < boss.y + boss.height &&
+          laser.y + 20 > boss.y
+        ) {
+          lasers.splice(lIndex, 1);
+          boss.health--;
+          if (boss.health <= 0) {
+            boss = null;
+            score += 50;
+          }
+        }
+      });
+    }
+
+    function drawHUD() {
+      document.getElementById("score").textContent = `Score: ${score} | Lives: ${player.lives}`;
+    }
+
+    function drawGameOver() {
+      ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "white";
+      ctx.font = "36px Arial";
+      ctx.textAlign = "center";
+      ctx.fillText("Game Over", canvas.width / 2, canvas.height / 2);
+      ctx.font = "24px Arial";
+      ctx.fillText(`Final Score: ${score}`, canvas.width / 2, canvas.height / 2 + 40);
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawPlayer();
+      drawLasers();
+      drawEnemies();
+      drawPowerUps();
+      drawBoss();
+      updateLasers();
+      updateEnemies();
+      updatePowerUps();
+      updateBoss();
+      detectCollisions();
+      drawHUD();
+
+      if (!gameOver) requestAnimationFrame(draw);
+      else drawGameOver();
+    }
+
+    function spawnEnemy() {
+      const x = Math.random() * (canvas.width - 40);
+      enemies.push({ x, y: -20 });
+    }
+
+    function spawnPowerUp() {
+      const x = Math.random() * (canvas.width - 20) + 10;
+      powerUps.push({ x, y: -10 });
+    }
+
+    function maybeSpawnBoss() {
+      if (score > 0 && score % 100 === 0 && !boss) {
+        boss = {
+          x: canvas.width / 2 - 50,
+          y: -40,
+          width: 100,
+          height: 30,
+          health: 10
+        };
+      }
+    }
+
+    function endGame() {
+      gameOver = true;
+      restartBtn.style.display = 'inline-block';
+      saveScore(score);
+    }
+
+    function resetGame() {
+      Object.assign(player, { x: canvas.width / 2 - 25, lives: 10 });
+      lasers = [];
+      enemies = [];
+      powerUps = [];
+      boss = null;
+      score = 0;
+      gameOver = false;
+      restartBtn.style.display = 'none';
+      draw();
+    }
+
+    function saveScore(newScore) {
+      const scores = JSON.parse(localStorage.getItem("laserScores") || "[]");
+      scores.push(newScore);
+      scores.sort((a, b) => b - a);
+      localStorage.setItem("laserScores", JSON.stringify(scores.slice(0, 5)));
+      renderLeaderboard();
+    }
+
+    function renderLeaderboard() {
+      const scores = JSON.parse(localStorage.getItem("laserScores") || "[]");
+      scoresList.innerHTML = scores.map(s => `<li>${s}</li>`).join("");
+    }
+
+    restartBtn.addEventListener('click', resetGame);
+    setInterval(spawnEnemy, 1000);
+    setInterval(spawnPowerUp, 7000);
+    setInterval(maybeSpawnBoss, 1000);
+
+    document.addEventListener("keydown", e => {
+      if (e.key === "ArrowLeft" && player.x > 0) player.x -= player.speed;
+      if (e.key === "ArrowRight" && player.x + player.width < canvas.width) player.x += player.speed;
+      if ((e.key === " " || e.key === "ArrowUp") && !gameOver) {
+        lasers.push({ x: player.x + player.width / 2 - 2, y: player.y });
+        laserSound.play();
+      }
+    });
+
+    function moveLeft() {
+      if (!gameOver && player.x > 0) player.x -= player.speed;
+    }
+    function moveRight() {
+      if (!gameOver && player.x + player.width < canvas.width) player.x += player.speed;
+    }
+    function fireLaser() {
+      if (!gameOver) {
+        lasers.push({ x: player.x + player.width / 2 - 2, y: player.y });
+        laserSound.play();
+      }
+    }
+
+    renderLeaderboard();
+    draw();
+  </script>
+</body>
+</html>
